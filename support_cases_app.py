@@ -18,12 +18,13 @@ col1, col2, col3 = st.columns([1, 2, 1])
 
 with col1:
     st.image("./img/optimus_logo.png", width=150)
+
 with col2:
-    st.title("Support Cases Dashboard")
+    st.title("📋 Support Cases Dashboard")
+    st.markdown("A comprehensive view of all support cases with filtering and search capabilities.")
+
 with col3:
     st.image("./img/cynet_logo.png", width=150)
-st.divider()
-
 
 # Load data from CSV
 @st.cache_data
@@ -52,6 +53,10 @@ df = load_data(csv_file_path)
 if df is None:
     st.stop()
 
+# Initialize session state for edited data
+if 'edited_df' not in st.session_state:
+    st.session_state.edited_df = df.copy()
+
 # Sidebar filters
 st.sidebar.header("🔍 Filters")
 
@@ -74,15 +79,24 @@ selected_severity = st.sidebar.multiselect(
 # Search box
 search_term = st.sidebar.text_input("Search by Case # or Subject", "")
 
-# Apply filters
-filtered_df = df.copy()
+# Apply filters with error handling
+filtered_df = st.session_state.edited_df.copy()
 
-if "All" not in selected_status:
+# Handle Status filter
+if selected_status and "All" not in selected_status:
     filtered_df = filtered_df[filtered_df['Status'].isin(selected_status)]
+elif not selected_status:
+    # If no status selected, show all
+    filtered_df = st.session_state.edited_df.copy()
 
-if "All" not in selected_severity:
+# Handle Severity filter
+if selected_severity and "All" not in selected_severity:
     filtered_df = filtered_df[filtered_df['Severity'].isin(selected_severity)]
+elif not selected_severity:
+    # If no severity selected, show all
+    filtered_df = st.session_state.edited_df.copy()
 
+# Handle search term
 if search_term:
     filtered_df = filtered_df[
         (filtered_df['Case #'].astype(str).str.contains(search_term, case=False)) |
@@ -117,85 +131,100 @@ col1, col2 = st.columns(2)
 
 # Chart 1: Status Distribution (Pie Chart)
 with col1:
-    status_counts = filtered_df['Status'].value_counts()
-    fig_status = px.pie(
-        values=status_counts.values,
-        names=status_counts.index,
-        title="Cases by Status",
-        hole=0.3
-    )
-    fig_status.update_layout(height=400)
-    st.plotly_chart(fig_status, use_container_width=True)
+    if len(filtered_df) > 0:
+        status_counts = filtered_df['Status'].value_counts()
+        fig_status = px.pie(
+            values=status_counts.values,
+            names=status_counts.index,
+            title="Cases by Status",
+            hole=0.3
+        )
+        fig_status.update_layout(height=400)
+        st.plotly_chart(fig_status, use_container_width=True)
+    else:
+        st.info("No data available for Status distribution")
 
 # Chart 2: Severity Distribution (Pie Chart)
 with col2:
-    severity_counts = filtered_df['Severity'].value_counts()
-    fig_severity = px.pie(
-        values=severity_counts.values,
-        names=severity_counts.index,
-        title="Cases by Severity",
-        color_discrete_map={'High': '#FF6B6B', 'Medium': '#FFA500', 'Low': '#4CAF50'},
-        hole=0.3
-    )
-    fig_severity.update_layout(height=400)
-    st.plotly_chart(fig_severity, use_container_width=True)
+    if len(filtered_df) > 0:
+        severity_counts = filtered_df['Severity'].value_counts()
+        fig_severity = px.pie(
+            values=severity_counts.values,
+            names=severity_counts.index,
+            title="Cases by Severity",
+            color_discrete_map={'High': '#FF6B6B', 'Medium': '#FFA500', 'Low': '#4CAF50'},
+            hole=0.3
+        )
+        fig_severity.update_layout(height=400)
+        st.plotly_chart(fig_severity, use_container_width=True)
+    else:
+        st.info("No data available for Severity distribution")
 
 # Chart 3: Status vs Severity (Stacked Bar Chart)
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    status_severity = pd.crosstab(filtered_df['Status'], filtered_df['Severity'])
-    fig_status_severity = go.Figure()
-    
-    for severity in ['High', 'Medium', 'Low']:
-        if severity in status_severity.columns:
-            fig_status_severity.add_trace(go.Bar(
-                name=severity,
-                x=status_severity.index,
-                y=status_severity[severity],
-                marker_color={'High': '#FF6B6B', 'Medium': '#FFA500', 'Low': '#4CAF50'}.get(severity, '#999')
-            ))
-    
-    fig_status_severity.update_layout(
-        title="Cases by Status and Severity",
-        barmode='stack',
-        xaxis_title="Status",
-        yaxis_title="Number of Cases",
-        height=400,
-        hovermode='x unified'
-    )
-    st.plotly_chart(fig_status_severity, use_container_width=True)
+    if len(filtered_df) > 0:
+        status_severity = pd.crosstab(filtered_df['Status'], filtered_df['Severity'])
+        fig_status_severity = go.Figure()
+        
+        for severity in ['High', 'Medium', 'Low']:
+            if severity in status_severity.columns:
+                fig_status_severity.add_trace(go.Bar(
+                    name=severity,
+                    x=status_severity.index,
+                    y=status_severity[severity],
+                    marker_color={'High': '#FF6B6B', 'Medium': '#FFA500', 'Low': '#4CAF50'}.get(severity, '#999')
+                ))
+        
+        fig_status_severity.update_layout(
+            title="Cases by Status and Severity",
+            barmode='stack',
+            xaxis_title="Status",
+            yaxis_title="Number of Cases",
+            height=400,
+            hovermode='x unified'
+        )
+        st.plotly_chart(fig_status_severity, use_container_width=True)
+    else:
+        st.info("No data available for Status vs Severity")
 
 # Chart 4: Cases Over Time (Line Chart)
 with col2:
-    # Group by date and count cases
-    cases_by_date = filtered_df.groupby(filtered_df['Date/Time Opened'].dt.date).size().reset_index(name='count')
-    cases_by_date.columns = ['Date', 'Cases']
-    
-    fig_timeline = px.line(
-        cases_by_date,
-        x='Date',
-        y='Cases',
-        title="Cases Opened Over Time",
-        markers=True
-    )
-    fig_timeline.update_layout(height=400)
-    st.plotly_chart(fig_timeline, use_container_width=True)
+    if len(filtered_df) > 0 and pd.notna(filtered_df['Date/Time Opened']).any():
+        # Group by date and count cases
+        cases_by_date = filtered_df.groupby(filtered_df['Date/Time Opened'].dt.date).size().reset_index(name='count')
+        cases_by_date.columns = ['Date', 'Cases']
+        
+        fig_timeline = px.line(
+            cases_by_date,
+            x='Date',
+            y='Cases',
+            title="Cases Opened Over Time",
+            markers=True
+        )
+        fig_timeline.update_layout(height=400)
+        st.plotly_chart(fig_timeline, use_container_width=True)
+    else:
+        st.info("No date data available for timeline")
 
 # Chart 5: Case Count by Status (Horizontal Bar Chart)
 col1, col2 = st.columns([1, 2])
 
 with col2:
-    status_counts_sorted = filtered_df['Status'].value_counts().sort_values()
-    fig_status_bar = px.bar(
-        x=status_counts_sorted.values,
-        y=status_counts_sorted.index,
-        title="Case Count by Status",
-        labels={'x': 'Number of Cases', 'y': 'Status'},
-        orientation='h'
-    )
-    fig_status_bar.update_layout(height=300)
-    st.plotly_chart(fig_status_bar, use_container_width=True)
+    if len(filtered_df) > 0:
+        status_counts_sorted = filtered_df['Status'].value_counts().sort_values()
+        fig_status_bar = px.bar(
+            x=status_counts_sorted.values,
+            y=status_counts_sorted.index,
+            title="Case Count by Status",
+            labels={'x': 'Number of Cases', 'y': 'Status'},
+            orientation='h'
+        )
+        fig_status_bar.update_layout(height=300)
+        st.plotly_chart(fig_status_bar, use_container_width=True)
+    else:
+        st.info("No data available for Status count")
 
 st.divider()
 
@@ -241,15 +270,88 @@ for idx, row in filtered_df.iterrows():
 
 st.divider()
 
-# Download data as CSV
-st.subheader("📥 Export Data")
-csv = filtered_df.to_csv(index=False)
-st.download_button(
-    label="Download as CSV",
-    data=csv,
-    file_name="support_cases.csv",
-    mime="text/csv"
-)
+# Data Management Section
+st.subheader("⚙️ Data Management")
+
+# Tabs for different data operations
+tab1, tab2, tab3 = st.tabs(["📥 Export Data", "✏️ Edit Data", "📊 View/Edit Table"])
+
+with tab1:
+    st.markdown("**Download filtered data as CSV**")
+    csv = filtered_df.to_csv(index=False)
+    st.download_button(
+        label="Download as CSV",
+        data=csv,
+        file_name="support_cases_filtered.csv",
+        mime="text/csv"
+    )
+
+with tab2:
+    st.markdown("**Add a new case**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        new_case_num = st.text_input("Case #", key="new_case_num")
+        new_subject = st.text_input("Subject", key="new_subject")
+        new_status = st.selectbox("Status", sorted(df['Status'].unique()), key="new_status")
+    
+    with col2:
+        new_severity = st.selectbox("Severity", sorted(df['Severity'].unique()), key="new_severity")
+        new_date = st.date_input("Date/Time Opened", key="new_date")
+        new_link = st.text_input("Link (optional)", key="new_link")
+    
+    new_details = st.text_area("Key Details", key="new_details")
+    
+    if st.button("Add Case"):
+        if new_case_num and new_subject:
+            new_row = pd.DataFrame({
+                'Case #': [new_case_num],
+                'Subject': [new_subject],
+                'Status': [new_status],
+                'Severity': [new_severity],
+                'Date/Time Opened': [pd.Timestamp(new_date)],
+                'Link': [new_link if new_link else None],
+                'Key Details': [new_details if new_details else None]
+            })
+            st.session_state.edited_df = pd.concat([st.session_state.edited_df, new_row], ignore_index=True)
+            st.success("✅ Case added successfully!")
+            st.rerun()
+        else:
+            st.error("Please fill in Case # and Subject")
+
+with tab3:
+    st.markdown("**View and edit all cases**")
+    
+    # Prepare data for editing
+    edit_df = st.session_state.edited_df.copy()
+    
+    # Format date for display
+    if 'Date/Time Opened' in edit_df.columns:
+        edit_df['Date/Time Opened'] = edit_df['Date/Time Opened'].dt.strftime('%Y-%m-%d')
+    
+    # Use data_editor for inline editing
+    edited_data = st.data_editor(
+        edit_df,
+        use_container_width=True,
+        num_rows="dynamic",
+        key="data_editor"
+    )
+    
+    # Save changes button
+    if st.button("💾 Save Changes"):
+        # Convert date string back to datetime
+        if 'Date/Time Opened' in edited_data.columns:
+            edited_data['Date/Time Opened'] = pd.to_datetime(edited_data['Date/Time Opened'], errors='coerce')
+        
+        st.session_state.edited_df = edited_data
+        
+        # Save to CSV
+        edited_data.to_csv(csv_file_path, index=False)
+        st.success("✅ Changes saved to CSV!")
+        st.rerun()
+
+st.divider()
 
 # Display table view
 st.subheader("📊 Table View")
@@ -259,11 +361,14 @@ display_df = filtered_df.copy()
 if 'Date/Time Opened' in display_df.columns:
     display_df['Date/Time Opened'] = display_df['Date/Time Opened'].dt.strftime('%b %d, %Y %I:%M %p')
 
-st.dataframe(
-    display_df,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Link": st.column_config.LinkColumn("Case Link")
-    }
-)
+if len(display_df) > 0:
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Link": st.column_config.LinkColumn("Case Link")
+        }
+    )
+else:
+    st.info("No cases to display with current filters")
