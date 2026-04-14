@@ -36,9 +36,11 @@ def load_data(csv_path):
     
     try:
         df = pd.read_csv(csv_path)
-        # Convert Date/Time Opened to datetime if it exists
+        # Convert date columns to datetime if they exist
         if 'Date/Time Opened' in df.columns:
             df['Date/Time Opened'] = pd.to_datetime(df['Date/Time Opened'], errors='coerce')
+        if 'Last Update Date' in df.columns:
+            df['Last Update Date'] = pd.to_datetime(df['Last Update Date'], errors='coerce')
         return df
     except Exception as e:
         st.error(f"Error loading CSV file: {e}")
@@ -79,6 +81,20 @@ selected_severity = st.sidebar.multiselect(
 # Search box
 search_term = st.sidebar.text_input("Search by Case # or Subject", "")
 
+# Contact Name filter
+if 'Contact Name' in df.columns:
+    contact_options = ["All"] + sorted(df['Contact Name'].dropna().unique().tolist())
+    selected_contact = st.sidebar.multiselect("Contact", contact_options, default=["All"])
+else:
+    selected_contact = ["All"]
+
+# Data refresh date
+if 'Data Refresh Date' in df.columns:
+    refresh_date = df['Data Refresh Date'].dropna().iloc[-1] if not df['Data Refresh Date'].dropna().empty else None
+    if refresh_date:
+        st.sidebar.divider()
+        st.sidebar.caption(f"Data as of: {refresh_date}")
+
 # Apply filters with error handling
 filtered_df = st.session_state.edited_df.copy()
 
@@ -95,6 +111,10 @@ if selected_severity and "All" not in selected_severity:
 elif not selected_severity:
     # If no severity selected, show all
     filtered_df = st.session_state.edited_df.copy()
+
+# Handle Contact Name filter
+if selected_contact and "All" not in selected_contact and 'Contact Name' in filtered_df.columns:
+    filtered_df = filtered_df[filtered_df['Contact Name'].isin(selected_contact)]
 
 # Handle search term
 if search_term:
@@ -247,26 +267,31 @@ for idx, row in filtered_df.iterrows():
         with col1:
             st.markdown(f"**Case #{row['Case #']}**")
             st.markdown(f"{severity_color} {row['Severity']}")
-        
+            if pd.notna(row.get('Contact Name')):
+                st.markdown(f"*{row['Contact Name']}*")
+
         with col2:
             st.markdown(f"**{row['Subject']}**")
             st.markdown(f"*Status:* {row['Status']}")
-        
+
         # Date and Link row
         col1, col2 = st.columns([2, 1])
-        
+
         with col1:
             if pd.notna(row.get('Date/Time Opened')):
                 date_str = pd.Timestamp(row['Date/Time Opened']).strftime('%b %d, %Y %I:%M %p')
                 st.markdown(f"*Opened:* {date_str}")
-        
+            if pd.notna(row.get('Last Update Date')):
+                update_str = pd.Timestamp(row['Last Update Date']).strftime('%b %d, %Y %I:%M %p')
+                st.markdown(f"*Last Update:* {update_str}")
+
         with col2:
             if pd.notna(row.get('Link')):
                 st.markdown(f"[🔗 View Case]({row['Link']})")
-        
-        # Key Details
-        if pd.notna(row.get('Key Details')):
-            st.markdown(f"**Details:** {row['Key Details']}")
+
+        # Summary
+        if pd.notna(row.get('Summary')):
+            st.markdown(f"**Summary:** {row['Summary']}")
 
 st.divider()
 
@@ -290,19 +315,21 @@ with tab2:
     st.markdown("**Add a new case**")
     
     col1, col2 = st.columns(2)
-    
+
     with col1:
         new_case_num = st.text_input("Case #", key="new_case_num")
         new_subject = st.text_input("Subject", key="new_subject")
         new_status = st.selectbox("Status", sorted(df['Status'].unique()), key="new_status")
-    
+        new_contact = st.text_input("Contact Name (optional)", key="new_contact")
+
     with col2:
         new_severity = st.selectbox("Severity", sorted(df['Severity'].unique()), key="new_severity")
         new_date = st.date_input("Date/Time Opened", key="new_date")
         new_link = st.text_input("Link (optional)", key="new_link")
-    
-    new_details = st.text_area("Key Details", key="new_details")
-    
+        new_update_date = st.date_input("Last Update Date", key="new_update_date")
+
+    new_details = st.text_area("Summary", key="new_details")
+
     if st.button("Add Case"):
         if new_case_num and new_subject:
             new_row = pd.DataFrame({
@@ -312,7 +339,10 @@ with tab2:
                 'Severity': [new_severity],
                 'Date/Time Opened': [pd.Timestamp(new_date)],
                 'Link': [new_link if new_link else None],
-                'Key Details': [new_details if new_details else None]
+                'Summary': [new_details if new_details else None],
+                'Contact Name': [new_contact if new_contact else None],
+                'Last Update Date': [pd.Timestamp(new_update_date)],
+                'Data Refresh Date': [datetime.today().strftime('%m/%d/%Y')]
             })
             st.session_state.edited_df = pd.concat([st.session_state.edited_df, new_row], ignore_index=True)
             st.success("✅ Case added successfully!")
@@ -326,9 +356,11 @@ with tab3:
     # Prepare data for editing
     edit_df = st.session_state.edited_df.copy()
     
-    # Format date for display
+    # Format date columns for display
     if 'Date/Time Opened' in edit_df.columns:
         edit_df['Date/Time Opened'] = edit_df['Date/Time Opened'].dt.strftime('%Y-%m-%d')
+    if 'Last Update Date' in edit_df.columns:
+        edit_df['Last Update Date'] = edit_df['Last Update Date'].dt.strftime('%Y-%m-%d')
     
     # Use data_editor for inline editing
     edited_data = st.data_editor(
@@ -340,9 +372,11 @@ with tab3:
     
     # Save changes button
     if st.button("💾 Save Changes"):
-        # Convert date string back to datetime
+        # Convert date strings back to datetime
         if 'Date/Time Opened' in edited_data.columns:
             edited_data['Date/Time Opened'] = pd.to_datetime(edited_data['Date/Time Opened'], errors='coerce')
+        if 'Last Update Date' in edited_data.columns:
+            edited_data['Last Update Date'] = pd.to_datetime(edited_data['Last Update Date'], errors='coerce')
         
         st.session_state.edited_df = edited_data
         
@@ -360,6 +394,8 @@ st.subheader("📊 Table View")
 display_df = filtered_df.copy()
 if 'Date/Time Opened' in display_df.columns:
     display_df['Date/Time Opened'] = display_df['Date/Time Opened'].dt.strftime('%b %d, %Y %I:%M %p')
+if 'Last Update Date' in display_df.columns:
+    display_df['Last Update Date'] = display_df['Last Update Date'].dt.strftime('%b %d, %Y %I:%M %p')
 
 if len(display_df) > 0:
     st.dataframe(
