@@ -1,1 +1,5 @@
 /support_cases.csv
+.venv/
+.DS_Store
+.claude/
+cynet_cases*.json
